@@ -29,8 +29,8 @@ def get_args_parser():
     parser.add_argument('--hidden-dim', type=int, default=32)
     parser.add_argument('--num-layers', type=int, default=3)
     parser.add_argument('--num-clusters', type=int, default=4)
-    parser.add_argument('--regularize', type=float, default=0.0, help='Regularization parameter for the model weigts BRICSCONV')
-    parser.add_argument('--regularize-contribution', type=float, default=0.0, help='Regularization parameter for the model weights BRICSCONV')
+    parser.add_argument('--regularize', type=float, default=0.0, help='Regularization parameter for the model weights SEAL')
+    parser.add_argument('--regularize-contribution', type=float, default=0.0, help='Regularization parameter for the model weights SEAL')
 
     parser.add_argument('--drop', type=float, default=0.0, metavar='PCT',
                         help='Dropout rate (default: 0.)')
