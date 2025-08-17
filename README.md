@@ -34,11 +34,6 @@ SEAL (Substructure Explanation via Attribution Learning), a new interpretable gr
 python train.py --data-set <dataset> --task <classification|regression> --epochs <num_epochs> [other options]
 ```
 
-### K-Fold Analysis
-
-```sh
-python k_fold_analyze.py --data-set <dataset> --task <classification|regression>
-```
 
 ### Extract Explanations
 
@@ -57,6 +52,7 @@ python scripts/evaluate_explanations.py --explanations_path <explanations_file> 
 ```sh
 python scripts/visualize_explanations.py --explanations_path <explanations_file> --indices 0 1 2 ...
 ```
+
 
 ## Datasets
 
