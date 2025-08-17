@@ -55,7 +55,7 @@ python scripts/evaluate_explanations.py --explanations_path <explanations_file> 
 ### Visualize Explanations
 
 ```sh
-python scripts/visualize_explanations.py --explanations_path <explanations_file> --save_path <visualization_output>
+python scripts/visualize_explanations.py --explanations_path <explanations_file> --indices 0 1 2 ...
 ```
 
 ## Datasets
