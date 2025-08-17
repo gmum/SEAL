@@ -2,7 +2,7 @@ numpy
 pillow
 wandb
 torchmetrics
-torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+torch==2.5.1+cu124.post3
 torch-geometric
 cairosvg
 svgwrite

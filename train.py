@@ -154,8 +154,8 @@ def main(args):
     dataset_train, dataset_val, dataset_test = dataset.build_dataset(dataset_kwargs)
     featurizer=dataset.GraphFeaturizer(y_column='Y')
 
-    train_set = featurizer(dataset_test, dataset_kwargs)
-    val_set = featurizer(dataset_test, dataset_kwargs)
+    train_set = featurizer(dataset_train, dataset_kwargs)
+    val_set = featurizer(dataset_val, dataset_kwargs)
     test_set = featurizer(dataset_test, dataset_kwargs)
 
     if args.task == 'classification':
