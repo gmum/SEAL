@@ -30,11 +30,13 @@ class DummyLogger(LoggerBase):
         super().__init__(log_dir)
     
     def log_metrics(self, metrics:dict, prefix:str):
-        pass
-    
+        metrics = {f"{prefix}_{k}": v for k, v in metrics.items()}
+        print(f"Logging metrics: {metrics}")
     def log_config(self, config: dict):
-        pass      
+        print(config)
 
+    def log_artifact(self, artifact_name: str, artifact_path: str):
+        pass
     def close(self):
         pass
     

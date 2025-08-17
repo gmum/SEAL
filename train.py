@@ -15,7 +15,7 @@ from utils.utils import train_one_epoch, evaluate_one_epoch, MetricList, explain
 import copy
 from utils import logger, creator
 from torch.utils.data import WeightedRandomSampler
-from daatasetss.dataset import SYNTHETIC_DATASET, REAL_DATASET, CLASSIFICATION_DATASET, REGRESSION_DATASET, STATS_DATASET
+from datasetss.dataset import SYNTHETIC_DATASET, REAL_DATASET, CLASSIFICATION_DATASET, REGRESSION_DATASET, STATS_DATASET
 
 def get_args_parser():
     parser = argparse.ArgumentParser(
@@ -53,10 +53,10 @@ def get_args_parser():
        
 
     # Dataset parameters
-    parser.add_argument('--data-set', default='rings-count', choices=['covid','sol', 'cyp', 'herg', 'herg_K', 'rings-count', 'rings-max','X','P','B','indole','PAINS',],
+    parser.add_argument('--data-set', default='rings-count', choices=['sol', 'cyp', 'herg', 'herg_K', 'rings-count', 'rings-max','X','P','B','indole','PAINS',],
                         type=str, help='dataset type')
     parser.add_argument('--task', default='classification',
-                        type=str, choices=['regression', 'classification', 'multiclassification'],)
+                        type=str, choices=['regression', 'classification'],)
     parser.add_argument('--num-classes', type=int,
                         default=1, help='Number of classes')
     parser.add_argument('--Y_column', type=str,
@@ -74,6 +74,7 @@ def get_args_parser():
     parser.add_argument('--num_workers', default=4, type=int)
     parser.add_argument("--split", default=0, type=int, help="Split index for dataset")
     parser.add_argument('--explain', action='store_true', help='Explain the model predictions')
+    parser.add_argument('--wandb', action='store_true', help='Use Weights & Biases for logging')
     parser.add_argument('--save-path', default='default.pth', type=str, help='Path to save the model')
     parser.add_argument('--warmup-epochs', default=0, type=int, help='Number of warmup epochs for learning rate scheduler')
     parser.add_argument('--patience', default=30, type=int, help='Patience for early stopping')
@@ -153,8 +154,8 @@ def main(args):
     dataset_train, dataset_val, dataset_test = dataset.build_dataset(dataset_kwargs)
     featurizer=dataset.GraphFeaturizer(y_column='Y')
 
-    train_set = featurizer(dataset_train, dataset_kwargs)
-    val_set = featurizer(dataset_val, dataset_kwargs)
+    train_set = featurizer(dataset_test, dataset_kwargs)
+    val_set = featurizer(dataset_test, dataset_kwargs)
     test_set = featurizer(dataset_test, dataset_kwargs)
 
     if args.task == 'classification':
@@ -260,11 +261,12 @@ def main(args):
         "regularize": args.regularize,
         "regularize_contribution": args.regularize_contribution,
     }
-
-    logg = logger.WandBLogger(
+    logg = logger.DummyLogger(
+            log_dir=args.output_dir) if not args.wandb else logger.WandBLogger(
         log_dir=args.output_dir, experiment_name=f'{args.model}_{args.data_set}_{datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}', project_name='gnn_interpretability', config=config_log)
 
     model = model.to(device)
+    
     logg.log_config(config_log)
 
     train_metrics = metrics
