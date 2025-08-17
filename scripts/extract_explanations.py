@@ -12,8 +12,7 @@ from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 import sys
 from pathlib import Path
-from datasetss.dataset import SYNTHETIC_DATASET, STATS_DATASET
-from datasetss.dataset import GraphFeaturizer, build_dataset, SyntheticGraphFeaturizer
+from datasetss.dataset import GraphFeaturizer, build_dataset, SyntheticGraphFeaturizer,SYNTHETIC_DATASET, STATS_DATASET
 import sys
 from architectures import SEALNetwork
 
@@ -74,16 +73,16 @@ def main():
     loaded_args = loaded["args"]
 
     synthetic = loaded['args']['data_set'] in SYNTHETIC_DATASET
-    mean=STATS_DATASET.get(args.data_set, {}).get("mean", 0.0)
-    std=STATS_DATASET.get(args.data_set, {}).get("std", 1.0)
+    mean=STATS_DATASET.get(loaded['args']['data_set'], {}).get("mean", 0.0)
+    std=STATS_DATASET.get(loaded['args']['data_set'], {}).get("std", 1.0)
 
     dataset_kwargs = {
-        "data_set": args.data_set,
+        "data_set": loaded['args']['data_set'],
         "mean": mean,
         "std": std,
-        "y_column": args.Y_column,
+        "y_column": loaded['args']['Y_column'],
         "smiles_col": "Drug",
-        "split": args.split
+        "split": loaded['args']['split']
     }
 
 
@@ -92,7 +91,7 @@ def main():
     featurizer=GraphFeaturizer(y_column='Y') if not synthetic else  SyntheticGraphFeaturizer(y_column='Y')
 
     test_set = featurizer(dataset_test, dataset_kwargs)
-    dataloader_test = DataLoader(test_set, batch_size=args.batch_size, shuffle=False)
+    dataloader_test = DataLoader(test_set, batch_size=1, shuffle=False)
 
     model_kwargs = {
         "model": "SEAL",
@@ -117,7 +116,12 @@ def main():
         batch = batch.to(device)
         node_mask = list()
 
-        out = explainer(batch, None)
+        try:
+            out = explainer(batch, None)
+        except Exception as e:
+            print(f"Error occurred while explaining batch: {e}")
+            continue
+        
         mask=torch.zeros(batch.x.shape[0], device=device)
         for i in range(batch.s.shape[0]):
             mask[i] = out["x_cluster_transformed"][0][batch.s[i].argmax().detach().cpu().item()]

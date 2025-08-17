@@ -9,15 +9,6 @@ SEAL (Substructure Explanation via Attribution Learning), a new interpretable gr
 
 ![SEAL Overview](./docs/interpretable_gnn.png)
 
-## Project Structure
-
-- `train.py`: Main script for training and evaluating GNN models.
-- `k_fold_analyze.py`: Script for k-fold cross-validation analysis.
-- `scripts/extract_explanations.py`: Extracts explanations from trained models.
-- `scripts/evaluate_exlpanations.py`: Evaluates the quality of explanations.
-- `architectures/SEAL.py`: Model architecture definition.
-- `datasetss/dataset.py`: Dataset loading, featurization, and utilities.
-- `utils/`: Training, evaluation, logging, and visualization utilities.
 
 ## Installation
 
@@ -28,7 +19,11 @@ SEAL (Substructure Explanation via Attribution Learning), a new interpretable gr
 	```
 2. Install dependencies:
 	```sh
-	pip install -r requirments.txt
+	pip install -r requirements.txt
+	```
+3. Install SEAL package in editable mode:
+	```sh
+	pip install -e .
 	```
 
 ## Usage

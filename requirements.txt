@@ -1,0 +1,12 @@
+numpy
+pillow
+wandb
+torchmetrics
+torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+torch-geometric
+cairosvg
+svgwrite
+sdf
+pandas
+scikit-learn
+scipy

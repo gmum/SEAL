@@ -96,16 +96,16 @@ def main():
     loaded = torch.load(args.explanations_path, weights_only=False)
     
     synthetic = loaded['model_args']['data_set'] in SYNTHETIC_DATASET
-    mean=STATS_DATASET.get(args.data_set, {}).get("mean", 0.0)
-    std=STATS_DATASET.get(args.data_set, {}).get("std", 1.0)
+    mean=STATS_DATASET.get(loaded['model_args']['data_set'], {}).get("mean", 0.0)
+    std=STATS_DATASET.get(loaded['model_args']['data_set'], {}).get("std", 1.0)
 
     dataset_kwargs = {
-        "data_set": args.data_set,
+        "data_set": loaded['model_args']['data_set'],
         "mean": mean,
         "std": std,
-        "y_column": args.Y_column,
+        "y_column": loaded['model_args']['Y_column'],
         "smiles_col": "Drug",
-        "split": args.split
+        "split": loaded['model_args']['split']
     }
     _,_, dataset_test = build_dataset(dataset_kwargs)
     featurizer=GraphFeaturizer(y_column='Y') if not synthetic else  SyntheticGraphFeaturizer(y_column='Y')
@@ -233,7 +233,6 @@ def eval_real(explanations: torch.Tensor, dataloader_test: DataLoader, loaded: d
 
     metrics = {
         "data_set": loaded["model_args"]["data_set"],
-        "explainer_type": loaded["args"]["explainer_type"],
         "split": loaded["model_args"]["split"],
         "pos_fidelity_models": pos_fidelity_model,
         "neg_fidelity_models": neg_fidelity_model,

@@ -50,26 +50,25 @@ def visualize_atom_importance(smiles: str, atom_importance: np.ndarray, output_p
 
 def main():
     parser = argparse.ArgumentParser(description="Visualize atom importance explanations.")
-    parser.add_argument('--data_set', type=str, required=True, help='Dataset name (e.g., sol)')
     parser.add_argument('--explanations_path', type=str, required=True, help='Path to explanations file')
-    parser.add_argument('--output_dir', type=str, default='paper_vis', help='Directory to save visualizations')
+    parser.add_argument('--output_dir', type=str, default='', help='Directory to save visualizations')
     parser.add_argument('--indices', type=int, nargs='+', required=True, help='Indices to visualize')
     args = parser.parse_args()
     
-    loaded = torch.load(args.explainer_path, map_location=torch.device("cpu"), weights_only=False)
+    loaded = torch.load(args.explanations_path, map_location=torch.device("cpu"), weights_only=False)
     loaded_args = loaded["args"]
 
-    synthetic = loaded['args']['data_set'] in SYNTHETIC_DATASET
-    mean=STATS_DATASET.get(args.data_set, {}).get("mean", 0.0)
-    std=STATS_DATASET.get(args.data_set, {}).get("std", 1.0)
+    synthetic = loaded['model_args']['data_set'] in SYNTHETIC_DATASET
+    mean=STATS_DATASET.get(loaded['model_args']['data_set'], {}).get("mean", 0.0)
+    std=STATS_DATASET.get(loaded['model_args']['data_set'], {}).get("std", 1.0)
 
     dataset_kwargs = {
-        "data_set": args.data_set,
+        "data_set": loaded['model_args']['data_set'],
         "mean": mean,
         "std": std,
-        "y_column": args.Y_column,
+        "y_column": loaded['model_args']['Y_column'],
         "smiles_col": "Drug",
-        "split": args.split
+        "split": loaded['model_args']['split']
     }
 
 
@@ -78,18 +77,21 @@ def main():
     featurizer=GraphFeaturizer(y_column='Y') if not synthetic else  SyntheticGraphFeaturizer(y_column='Y')
 
     test_set = featurizer(dataset_test, dataset_kwargs)
-    dataloader_test = DataLoader(test_set, batch_size=args.batch_size, shuffle=False)
+    dataloader_test = DataLoader(test_set, batch_size=1, shuffle=False)
 
 
 
     model_kwargs = {
         "model": "SEAL",
-        "hidden_features": loaded['model_args']['hidden_features'],
+        "hidden_features": loaded['model_args']['hidden_dim'],
         "num_layers": loaded['model_args']['num_layers'],
         "input_features": test_set[0].x.shape[1],
     }
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model_weights = torch.load(loaded["args"]["explainer_path"], map_location=torch.device(device))['state_dict']
+
     model = create_model(model_kwargs)
-    model.load_state_dict(torch.load(args.model_weights, map_location='cpu', weights_only=True))
+    model.load_state_dict(model_weights)
     model.eval()
 
     data = torch.load(args.explanations_path, map_location='cpu', weights_only=False)
@@ -98,7 +100,7 @@ def main():
     for idx in args.indices:
         mask, x, edge_index, y = load_explanation(data, idx)
         smiles = dataset_test.iloc[idx].Drug
-        output_path = f"{args.output_dir}/{args.data_set}_{idx}.svg"
+        output_path = f"{args.output_dir}/{loaded['model_args']['data_set']}_{idx}.svg"
         visualize_atom_importance(smiles, mask.cpu().numpy(), output_path=output_path)
         print(f"Saved visualization for index {idx} to {output_path}")
 
