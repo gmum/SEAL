@@ -156,6 +156,9 @@ Example:
 - data/data.csv
 - data/explanations.sdf
 
+The Mutagenicity (MUTAG) dataset is available from the TUDataset repository see: https://chrsmrrs.github.io/datasets/docs/datasets/, adopted from https://github.com/ngocbh/MAGE/blob/main/dataset/mutag0.py
+
+
 ## License
 
 See `LICENSE` for details.
