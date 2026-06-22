@@ -62,7 +62,7 @@ def get_args_parser():
        
 
     # Dataset parameters
-    parser.add_argument('--data-set', default='mutag', choices=['cyp_s','sol_s','herg_K_s','mutag','sol', 'cyp', 'herg', 'herg_K', 'rings-count', 'rings-max','X','P','B','indole','PAINS',],
+    parser.add_argument('--data-set', default='mutag', choices=['cyp_s','sol_s','herg_K_s','mutag','sol', 'cyp', 'herg', 'herg_K', 'rings-count', 'rings-max','X','P','B','indole','PAINS','bbbp','bbbp_s'],
                         type=str, help='dataset type')
     parser.add_argument('--task', default='classification',
                         type=str, choices=['regression', 'classification'],)
@@ -114,7 +114,7 @@ def write_to_csv(test_stats: dict,args):
         os.makedirs(dir_name)
     
 
-    csv_path =  f"{dir_name}/{args.data_set}_{args.model}_{args.cutting_method}_{args.regularize}_hyper.csv"
+    csv_path =  f"{dir_name}/{args.data_set}_{args.model}_{args.cutting_method}_{args.regularize}.csv"
     file_exists = os.path.exists(csv_path)
     
     with open(csv_path, mode='a', newline='') as f:
@@ -229,7 +229,6 @@ def main(args):
         "task": args.task,
         "number_of_clusters": args.num_clusters,
         "regularize": args.regularize,
-        "regularize_contribution": args.regularize_contribution,
         "weight_decay": args.weight_decay,
     }
 
@@ -280,7 +279,6 @@ def main(args):
         "hidden_dim": args.hidden_dim,
         "drop": args.drop,
         "regularize": args.regularize,
-        "regularize_contribution": args.regularize_contribution,
     }
     logg = logger.DummyLogger(
             log_dir=args.output_dir) if not args.wandb else logger.WandBLogger(

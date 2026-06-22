@@ -33,6 +33,8 @@ REAL_DATASET=[
     "sol_s",
     "cyp_s",
     "herg_K_s",
+    "bbbp",
+    "bbbp_s"
 ]      
 MUTAG_DATASET=[
     "mutag",
@@ -52,6 +54,8 @@ CLASSIFICATION_DATASET = {
     "mutag",
     "cyp_s",
     "herg_K_s",
+    "bbbp",
+    "bbbp_s"
 }
 REGRESSION_DATASET = {
     "sol",
@@ -93,7 +97,12 @@ def build_dataset(kwargs:dict) -> tuple:
     elif kwargs["data_set"] == "herg_K_s":
         data= Tox(name = 'hERG_Karim')
         split = data.get_split(method = 'scaffold',seed=kwargs['split'])
-
+    elif kwargs["data_set"] == "bbbp":
+        data = ADME(name = 'BBB_Martins')
+        split = data.get_split(seed=kwargs['split'])
+    elif kwargs["data_set"] == "bbbp_s":
+        data = ADME(name = 'BBB_Martins')
+        split = data.get_split(method = 'scaffold',seed=kwargs['split'])
     elif kwargs["data_set"] == "mutag":
         data=pd.read_csv('/home/z1185722/chem-data/mutagenicity_dataset2.csv')
         data=data.rename(columns={"smiles": "Drug", kwargs['data_set']: "Y"})
