@@ -1,6 +1,6 @@
 import torch.optim.lr_scheduler as lr_scheduler
 import torch.optim as optim
-from architectures import SEALNetwork
+from architectures import SEALNetwork, SEALAtom, SEALAuto
 import torch
 
 
@@ -16,6 +16,8 @@ def create_model(kwargs: dict) -> torch.nn.Module:
     """
     models = {
         "SEAL": SEALNetwork,
+        "SEALAtom": SEALAtom,
+        "SEALAuto": SEALAuto,  #
     }
     model_name = kwargs.get("model", "")
     if model_name not in models:

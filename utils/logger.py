@@ -6,7 +6,7 @@ class LoggerBase(ABC):
     """
     Base class for logging utilities.
     """
-    def __init__(self, log_dir: str|Path):
+    def __init__(self, log_dir):
         super().__init__()
         self.log_dir = Path(log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -26,12 +26,12 @@ class DummyLogger(LoggerBase):
     Args:
         LoggerBase (ABC): Base class for logging utilities.
     """
-    def __init__(self, log_dir: str|Path):
+    def __init__(self, log_dir):
         super().__init__(log_dir)
     
     def log_metrics(self, metrics:dict, prefix:str):
         metrics = {f"{prefix}_{k}": v for k, v in metrics.items()}
-        print(f"Logging metrics: {metrics}")
+        # print(f"Logging metrics: {metrics}")
     def log_config(self, config: dict):
         print(config)
 
@@ -47,7 +47,7 @@ class WandBLogger(LoggerBase):
     Args:
         LoggerBase (ABC): Base class for logging utilities.
     """
-    def __init__(self, log_dir: str | Path, experiment_name: str, project_name: str, config: dict, **kwargs):
+    def __init__(self, log_dir, experiment_name: str, project_name: str, config: dict, **kwargs):
         """
         Initializes the WandBLogger.
         Args:

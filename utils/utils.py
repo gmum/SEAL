@@ -43,6 +43,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module, data_loa
 
         output = model(batch)
         out = output["output"]
+        # print(batch.y)
         loss = criterion(out, batch.y.reshape(-1, 1)) + output["losses"]
 
         optimizer.zero_grad()
@@ -207,7 +208,8 @@ def visualize_importance(model: torch.nn.Module, dataset_test: pd.DataFrame, tes
 
     out = model(data)
     cluster_indices = torch.argmax(out['s'], dim=-1)
-
+    # print(out['x_cluster_transformed'])
+    # print(transformed_values)
     transformed_values = out['x_cluster_transformed'][id_output].flatten()
     # print(transformed_values)
     highlight_atoms = list(range(data.x.shape[0]))

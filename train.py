@@ -15,7 +15,13 @@ from utils.utils import train_one_epoch, evaluate_one_epoch, MetricList, explain
 import copy
 from utils import logger, creator
 from torch.utils.data import WeightedRandomSampler
-from datasetss.dataset import SYNTHETIC_DATASET, REAL_DATASET, CLASSIFICATION_DATASET, REGRESSION_DATASET, STATS_DATASET
+import random
+from torch_geometric.loader import DataLoader
+from torch_geometric.nn import Sequential, GCNConv, GATConv, GAT, GCN, GIN
+from torch_geometric.nn import global_add_pool, global_max_pool
+from torch.nn import Linear
+from torch.nn import functional as F
+from datasetss.dataset import SYNTHETIC_DATASET, REAL_DATASET, CLASSIFICATION_DATASET, REGRESSION_DATASET, STATS_DATASET, MUTAG_DATASET
 
 def get_args_parser():
     parser = argparse.ArgumentParser(
@@ -24,7 +30,7 @@ def get_args_parser():
     parser.add_argument('--epochs', default=30, type=int)
 
     # Model parameters
-    parser.add_argument('--model', default='SEAL', type=str, metavar='MODEL', choices=['SEAL'],
+    parser.add_argument('--model', default='SEAL', type=str, metavar='MODEL', choices=['SEAL','SEALAtom', 'SEALAuto'],
                         help='Name of model to train')
     parser.add_argument('--hidden-dim', type=int, default=32)
     parser.add_argument('--num-layers', type=int, default=3)
@@ -34,6 +40,9 @@ def get_args_parser():
 
     parser.add_argument('--drop', type=float, default=0.0, metavar='PCT',
                         help='Dropout rate (default: 0.)')
+
+    parser.add_argument('--cutting-method', default='BRICS', type=str, metavar='MODEL', choices=['BRICS', 'Murcko', 'Functional', 'Ring'],
+                        help='Name of cutting method to use for SEAL')
 
     # Optimizer parameters
     parser.add_argument('--optim', default='adamw', type=str, metavar='OPTIMIZER',
@@ -53,7 +62,7 @@ def get_args_parser():
        
 
     # Dataset parameters
-    parser.add_argument('--data-set', default='rings-count', choices=['sol', 'cyp', 'herg', 'herg_K', 'rings-count', 'rings-max','X','P','B','indole','PAINS',],
+    parser.add_argument('--data-set', default='mutag', choices=['cyp_s','sol_s','herg_K_s','mutag','sol', 'cyp', 'herg', 'herg_K', 'rings-count', 'rings-max','X','P','B','indole','PAINS',],
                         type=str, help='dataset type')
     parser.add_argument('--task', default='classification',
                         type=str, choices=['regression', 'classification'],)
@@ -71,12 +80,12 @@ def get_args_parser():
     parser.add_argument('--resume', default='', help='resume from checkpoint')
     parser.add_argument('--start_epoch', default=0, type=int, metavar='N',
                         help='start epoch')
-    parser.add_argument('--num_workers', default=4, type=int)
+    parser.add_argument('--num_workers', default=0, type=int)
     parser.add_argument("--split", default=0, type=int, help="Split index for dataset")
     parser.add_argument('--explain', action='store_true', help='Explain the model predictions')
     parser.add_argument('--wandb', action='store_true', help='Use Weights & Biases for logging')
     parser.add_argument('--save-path', default='default.pth', type=str, help='Path to save the model')
-    parser.add_argument('--warmup-epochs', default=0, type=int, help='Number of warmup epochs for learning rate scheduler')
+    parser.add_argument('--warmup-epochs', default=50, type=int, help='Number of warmup epochs for learning rate scheduler')
     parser.add_argument('--patience', default=30, type=int, help='Patience for early stopping')
     return parser
 
@@ -100,7 +109,12 @@ def write_to_csv(test_stats: dict,args):
     test_stats['model_type']= args.model
     test_stats['split'] = args.split
 
-    csv_path =  f"{args.data_set}_SEAL_{args.regularize}.csv"
+    dir_name = args.model + "_results"
+    if not os.path.exists(dir_name):
+        os.makedirs(dir_name)
+    
+
+    csv_path =  f"{dir_name}/{args.data_set}_{args.model}_{args.cutting_method}_{args.regularize}_hyper.csv"
     file_exists = os.path.exists(csv_path)
     
     with open(csv_path, mode='a', newline='') as f:
@@ -126,6 +140,9 @@ def main(args):
     mean=STATS_DATASET.get(args.data_set, {}).get("mean", 0.0)
     std=STATS_DATASET.get(args.data_set, {}).get("std", 1.0)
 
+    if args.epochs <= args.warmup_epochs:
+        args.warmup_epochs = args.epochs // 2
+        
     if args.task == 'regression':
         metrics = {
             "mae": MeanAbsoluteError(),
@@ -146,13 +163,22 @@ def main(args):
         "std": std,
         "y_column": args.Y_column,
         "smiles_col": "Drug",
-        "split": args.split
+        "task": args.task,
+        "split": args.split,
+        "cutting_method": args.cutting_method,
     }
-
+    print(dataset_kwargs)
     metrics=MetricList(metrics)
 
     dataset_train, dataset_val, dataset_test = dataset.build_dataset(dataset_kwargs)
-    featurizer=dataset.GraphFeaturizer(y_column='Y')
+    if args.data_set in SYNTHETIC_DATASET:
+        featurizer = dataset.SyntheticGraphFeaturizer(y_column='Y')
+    elif args.data_set in REAL_DATASET:
+        featurizer = dataset.GraphFeaturizer(y_column='Y')
+    elif args.data_set in MUTAG_DATASET:
+        featurizer = dataset.MutagGraphFeaturizer(y_column='Y')
+    else:
+        raise ValueError("Dataset not supported for featurization")
 
     train_set = featurizer(dataset_train, dataset_kwargs)
     val_set = featurizer(dataset_val, dataset_kwargs)
@@ -160,7 +186,6 @@ def main(args):
 
     if args.task == 'classification':
         labels = np.array([int(data.y.item() > 0.5) for data in train_set])
-
         class_counts = np.bincount(labels)
         class_weights = 1.0 / class_counts
         sample_weights = class_weights[labels]
@@ -173,7 +198,6 @@ def main(args):
         data_loader_train = DataLoader(
             train_set,
             batch_size=args.batch_size,
-            num_workers=args.num_workers,
             drop_last=True,
             sampler=sampler
         )
@@ -181,21 +205,18 @@ def main(args):
         data_loader_train = DataLoader(
             train_set,
             batch_size=args.batch_size,
-            num_workers=args.num_workers,
             drop_last=True,
             shuffle=True
         )
     data_loader_val = DataLoader(
         val_set,
         batch_size=args.batch_size,
-        num_workers=args.num_workers,
         drop_last=False
     )
 
     data_loader_test = DataLoader(
         test_set,
         batch_size=1,
-        num_workers=args.num_workers,
         drop_last=False
     )
 
@@ -280,6 +301,7 @@ def main(args):
 
     min_val_loss=float('inf')
     count=0
+
     for epoch in tqdm(range(args.start_epoch, args.epochs), total=args.epochs-args.start_epoch+1):
 
         train_stats = train_one_epoch(
@@ -311,7 +333,7 @@ def main(args):
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
 
     test_stats = evaluate_one_epoch(
-            model, criterion, data_loader_val, device, logg, test_metrics, args)
+            model, criterion, data_loader_test, device, logg, test_metrics, args)
     if args.task == 'classification':
         torch.save(
             {
@@ -344,11 +366,15 @@ def main(args):
     print('Training time {}'.format(total_time_str))
 
     if args.explain:
-        print("EXPLAINING")
         explain_model(indices=range(25), rows=5, cols=5,output_filename=f"{model_kwargs['model']}_importance_{dataset_kwargs['data_set']}.png",logger=logg ,model=model, dataset_test=dataset_test,test_set=test_set,model_kwargs=model_kwargs, args=args)
 
     logg.close()
 
+
+def set_seed(seed):
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.manual_seed(seed)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(

@@ -30,7 +30,13 @@ REAL_DATASET=[
     "cyp",
     "herg",
     "herg_K",
+    "sol_s",
+    "cyp_s",
+    "herg_K_s",
 ]      
+MUTAG_DATASET=[
+    "mutag",
+]
 
 CLASSIFICATION_DATASET = {
     "rings-count",
@@ -43,12 +49,17 @@ CLASSIFICATION_DATASET = {
     "cyp",
     "herg",
     "herg_K",
+    "mutag",
+    "cyp_s",
+    "herg_K_s",
 }
 REGRESSION_DATASET = {
     "sol",
+    "sol_s",
 }
 STATS_DATASET={
     "sol": {"mean": -2.86, "std": 2.38},
+    "sol_s": {"mean": -2.51, "std": 2.20},
 }
 
 def build_dataset(kwargs:dict) -> tuple:
@@ -73,6 +84,28 @@ def build_dataset(kwargs:dict) -> tuple:
     elif kwargs["data_set"] == "herg_K":
         data= Tox(name = 'hERG_Karim')
         split = data.get_split(seed=kwargs['split'])
+    elif kwargs["data_set"] == "cyp_s":
+        data = ADME(name='CYP2C9_Veith')
+        split = data.get_split(method = 'scaffold',seed=kwargs['split'])
+    elif kwargs["data_set"] == "sol_s":
+        data = ADME(name='Solubility_AqSolDB')
+        split = data.get_split(method = 'scaffold',seed=kwargs['split'])
+    elif kwargs["data_set"] == "herg_K_s":
+        data= Tox(name = 'hERG_Karim')
+        split = data.get_split(method = 'scaffold',seed=kwargs['split'])
+
+    elif kwargs["data_set"] == "mutag":
+        data=pd.read_csv('/home/z1185722/chem-data/mutagenicity_dataset2.csv')
+        data=data.rename(columns={"smiles": "Drug", kwargs['data_set']: "Y"})
+        
+        train = data[data[f"split_{kwargs['split']}"] == 'train']
+        valid = data[data[f"split_{kwargs['split']}"] == 'val']
+        test = data[data[f"split_{kwargs['split']}"] == 'test']
+        split = {}
+        split['train'] = train
+        split['valid'] = valid
+        split['test'] = test
+
     elif kwargs["data_set"] in [
         "rings-count",
         "rings-max",
@@ -82,7 +115,7 @@ def build_dataset(kwargs:dict) -> tuple:
         "indole",
         "PAINS",
     ]:
-        data=pd.read_csv('data/data.csv')
+        data=pd.read_csv('/home/z1185722/chem-data/data.csv')
         data=data.rename(columns={"smiles": "Drug", kwargs['data_set']: "Y"})
         
         train = data[data[f"split_{kwargs['split']}"] == 'train']
@@ -163,13 +196,6 @@ class GraphFeaturizer(Featurizer):
             # Extract features for each atom
             for atom in mol.GetAtoms():
                 res = self.get_features(atom)
-                # res.extend(self.get_atom_degree(atom))
-                # res.extend(self.get_formal_charge(atom))
-                # res.extend(self.get_is_aromatic(atom))
-                # res.extend(self.get_hybridization(atom))
-                # res.extend(self.get_valence(atom))
-                # res.extend(self.get_is_inring(atom))
-                # res.extend(self.get_num_hs(atom))
                 
                 nodes.append(res)
             nodes = np.array(nodes)
@@ -183,7 +209,9 @@ class GraphFeaturizer(Featurizer):
             assignments.append(s)
             assignments_nodes.append(s_node)
             mask = self.mask_broken_edges(torch.LongTensor(edges), breaks)
-            graphs.append((nodes, edges, mask))
+            mask_atoms = self.mask_broken_edges_atoms(torch.LongTensor(edges), num_atoms)
+
+            graphs.append((nodes, edges, mask, mask_atoms))
             labels.append(y)
             number_clusters.append(s.shape[1])
         max_num_clusters = max([s.shape[1] for s in assignments])
@@ -210,8 +238,9 @@ class GraphFeaturizer(Featurizer):
             s_node=torch.FloatTensor(s_node),
             y=torch.FloatTensor([y]),
             num_cluster=torch.LongTensor([num_cluster]),
-            mask=torch.FloatTensor(mask)
-        ) for ((x, edge_index, mask), s, s_node ,num_cluster, y) in zip(graphs, assignments, assignments_nodes, number_clusters, labels)]
+            mask=torch.FloatTensor(mask),
+            mask_atom=torch.FloatTensor(maskatom)
+        ) for ((x, edge_index, mask, maskatom), s, s_node ,num_cluster, y) in zip(graphs, assignments, assignments_nodes, number_clusters, labels)]
 
     def mask_broken_edges(self, edge_index, breaks, apply_sigmoid=False):
         """
@@ -234,6 +263,18 @@ class GraphFeaturizer(Featurizer):
                 mask[i] = 0.0
         return mask
 
+    def mask_broken_edges_atoms(self, edge_index, num_atoms):
+        """
+        Creates a mask for broken edges in the graph.
+        Args:
+            edge_index (torch.Tensor): The edge index tensor.
+            num_atoms 
+        Returns:
+            torch.Tensor: The mask for broken edges.
+        """
+        num_edges = edge_index.size(1)
+        mask = torch.zeros(num_edges, dtype=torch.float32)
+        return mask
     """
     Functions to create features for atoms and molecules
     """
@@ -353,6 +394,368 @@ class GraphFeaturizer(Featurizer):
         all_murcko_substructure_subset['substructure'] = substrate_idx
         all_murcko_substructure_subset['substructure_bond'] = all_murcko_bond
         return all_murcko_substructure_subset
+
+
+    def functional_group_decomp(self, mol):
+        """
+        Functional group decomposition: identify and isolate functional groups.
+        Uses SMARTS patterns to recognize common functional groups.
+        
+        Args:
+            mol: RDKit molecule object
+            
+        Returns:
+            cliques: List of atom index lists for each fragment
+            breaks: List of [atom_i, atom_j] pairs representing broken bonds
+        """
+        n_atoms = mol.GetNumAtoms()
+        
+        # Handle single atom case
+        if n_atoms == 1:
+            return [[0]], []
+        
+        # Common functional group SMARTS patterns
+        functional_groups = {
+            'carboxylic_acid': '[CX3](=[OX1])[OX2H1]',
+            'ester': '[CX3](=[OX1])[OX2][CX4]',
+            'amide': '[NX3][CX3](=[OX1])',
+            'amine_primary': '[NX3;H2][CX4]',
+            'amine_secondary': '[NX3;H1]([CX4])[CX4]',
+            'alcohol': '[OX2H][CX4]',
+            'aldehyde': '[CX3H1](=[OX1])',
+            'ketone': '[CX3](=[OX1])([CX4])[CX4]',
+            'nitro': '[NX3+](=[OX1-])[OX1-]',
+            'sulfone': '[SX4](=[OX1])(=[OX1])',
+            'sulfonamide': '[SX4](=[OX1])(=[OX1])[NX3]',
+            'phenol': '[OX2H][c]',
+        }
+        
+        # Find functional group atoms
+        fg_atoms = set()
+        fg_groups = []
+        
+        for fg_name, smarts in functional_groups.items():
+            pattern = Chem.MolFromSmarts(smarts)
+            if pattern is None:
+                continue
+            
+            matches = mol.GetSubstructMatches(pattern)
+            for match in matches:
+                # Only add if not already in a functional group
+                if not any(atom in fg_atoms for atom in match):
+                    fg_groups.append(list(match))
+                    fg_atoms.update(match)
+        
+        # Get ring systems (preserve rings)
+        ring_info = mol.GetRingInfo()
+        atom_rings = ring_info.AtomRings()
+        
+        ring_atoms = set()
+        ring_systems = []
+        
+        if atom_rings:
+            # Map each atom to which rings it belongs to
+            atom_to_rings = {i: [] for i in range(n_atoms)}
+            for ring_idx, ring in enumerate(atom_rings):
+                for atom in ring:
+                    atom_to_rings[atom].append(ring_idx)
+                    ring_atoms.add(atom)
+            
+            # Group connected rings into ring systems
+            processed_rings = set()
+            
+            for ring_idx in range(len(atom_rings)):
+                if ring_idx in processed_rings:
+                    continue
+                    
+                current_system = set(atom_rings[ring_idx])
+                queue = [ring_idx]
+                processed_rings.add(ring_idx)
+                
+                while queue:
+                    current_ring_idx = queue.pop(0)
+                    current_ring = set(atom_rings[current_ring_idx])
+                    
+                    for atom in current_ring:
+                        for other_ring_idx in atom_to_rings[atom]:
+                            if other_ring_idx not in processed_rings:
+                                current_system.update(atom_rings[other_ring_idx])
+                                queue.append(other_ring_idx)
+                                processed_rings.add(other_ring_idx)
+                
+                if current_system:
+                    ring_systems.append(list(current_system))
+        
+        # Remaining atoms (not in functional groups or rings)
+        assigned_atoms = fg_atoms | ring_atoms
+        remaining_atoms = set(range(n_atoms)) - assigned_atoms
+        
+        # Group remaining atoms into chains
+        chains = []
+        visited = set()
+        
+        for atom_idx in remaining_atoms:
+            if atom_idx in visited:
+                continue
+                
+            current_chain = []
+            queue = [atom_idx]
+            visited.add(atom_idx)
+            
+            while queue:
+                current = queue.pop(0)
+                current_chain.append(current)
+                
+                atom = mol.GetAtomWithIdx(current)
+                for neighbor in atom.GetNeighbors():
+                    neighbor_idx = neighbor.GetIdx()
+                    if neighbor_idx in remaining_atoms and neighbor_idx not in visited:
+                        visited.add(neighbor_idx)
+                        queue.append(neighbor_idx)
+            
+            if current_chain:
+                chains.append(current_chain)
+        
+        # Combine all cliques: functional groups + ring systems + chains
+        cliques = fg_groups + ring_systems + chains
+        
+        # Remove empty cliques
+        cliques = [c for c in cliques if len(c) > 0]
+        
+        # Find broken bonds
+        breaks = []
+        
+        # Create atom to clique mapping
+        atom_to_clique = {}
+        for clique_idx, clique in enumerate(cliques):
+            for atom in clique:
+                atom_to_clique[atom] = clique_idx
+        
+        # Check each bond
+        for bond in mol.GetBonds():
+            a1 = bond.GetBeginAtomIdx()
+            a2 = bond.GetEndAtomIdx()
+            
+            # If atoms belong to different cliques, it's a break
+            clique1 = atom_to_clique.get(a1)
+            clique2 = atom_to_clique.get(a2)
+            
+            if clique1 is not None and clique2 is not None and clique1 != clique2:
+                breaks.append([a1, a2])
+        
+        # If no decomposition, return whole molecule
+        if len(cliques) == 0:
+            return [list(range(n_atoms))], []
+        
+        return cliques, breaks
+
+    def ring_based_decomp(self, mol):
+        """
+        Ring-based decomposition: separate ring systems from chains.
+        Each ring system becomes a clique, chains are broken at attachment points.
+        
+        Args:
+            mol: RDKit molecule object
+            
+        Returns:
+            cliques: List of atom index lists for each fragment (rings + chains)
+            breaks: List of [atom_i, atom_j] pairs representing broken bonds
+        """
+        n_atoms = mol.GetNumAtoms()
+        
+        # Handle single atom case
+        if n_atoms == 1:
+            return [[0]], []
+        
+        # Get ring information
+        ring_info = mol.GetRingInfo()
+        atom_rings = ring_info.AtomRings()
+        
+        # If no rings, return whole molecule
+        if len(atom_rings) == 0:
+            return [list(range(n_atoms))], []
+        
+        # Create sets for ring atoms
+        ring_systems = []
+        all_ring_atoms = set()
+        
+        # Map each atom to which rings it belongs to
+        atom_to_rings = {i: [] for i in range(n_atoms)}
+        for ring_idx, ring in enumerate(atom_rings):
+            for atom in ring:
+                atom_to_rings[atom].append(ring_idx)
+                all_ring_atoms.add(atom)
+        
+        # Group connected rings into ring systems (fused rings stay together)
+        processed_rings = set()
+        
+        for ring_idx in range(len(atom_rings)):
+            if ring_idx in processed_rings:
+                continue
+                
+            # BFS to find all connected rings (sharing atoms)
+            current_system = set(atom_rings[ring_idx])
+            queue = [ring_idx]
+            processed_rings.add(ring_idx)
+            
+            while queue:
+                current_ring_idx = queue.pop(0)
+                current_ring = set(atom_rings[current_ring_idx])
+                
+                # Find rings that share atoms with current ring
+                for atom in current_ring:
+                    for other_ring_idx in atom_to_rings[atom]:
+                        if other_ring_idx not in processed_rings:
+                            current_system.update(atom_rings[other_ring_idx])
+                            queue.append(other_ring_idx)
+                            processed_rings.add(other_ring_idx)
+            
+            if current_system:
+                ring_systems.append(list(current_system))
+        
+        # Find chain atoms (non-ring atoms)
+        chain_atoms = set(range(n_atoms)) - all_ring_atoms
+        
+        # Group chain atoms into connected components
+        chains = []
+        visited = set()
+        
+        for atom_idx in chain_atoms:
+            if atom_idx in visited:
+                continue
+                
+            # BFS to find connected chain atoms
+            current_chain = []
+            queue = [atom_idx]
+            visited.add(atom_idx)
+            
+            while queue:
+                current = queue.pop(0)
+                current_chain.append(current)
+                
+                atom = mol.GetAtomWithIdx(current)
+                for neighbor in atom.GetNeighbors():
+                    neighbor_idx = neighbor.GetIdx()
+                    # Only follow chain atoms (not ring atoms)
+                    if neighbor_idx in chain_atoms and neighbor_idx not in visited:
+                        visited.add(neighbor_idx)
+                        queue.append(neighbor_idx)
+            
+            if current_chain:
+                chains.append(current_chain)
+        
+        # Create cliques: ring systems + chains
+        cliques = ring_systems + chains
+        
+        # Find broken bonds (bonds between rings and chains, or between different systems)
+        breaks = []
+        
+        # Create atom to clique mapping
+        atom_to_clique = {}
+        for clique_idx, clique in enumerate(cliques):
+            for atom in clique:
+                atom_to_clique[atom] = clique_idx
+        
+        # Check each bond
+        for bond in mol.GetBonds():
+            a1 = bond.GetBeginAtomIdx()
+            a2 = bond.GetEndAtomIdx()
+            
+            # If atoms belong to different cliques, it's a break
+            if atom_to_clique.get(a1) != atom_to_clique.get(a2):
+                breaks.append([a1, a2])
+        
+        return cliques, breaks
+
+
+    def murcko_scaffold_decomp(self, mol):
+        """
+        Decompose molecule using Murcko scaffolds.
+        Separates the core scaffold (framework) from side chains (R-groups).
+        
+        Args:
+            mol: RDKit molecule object
+            
+        Returns:
+            cliques: List of atom index lists for each fragment (scaffold + side chains)
+            breaks: List of [atom_i, atom_j] pairs representing broken bonds
+        """
+        n_atoms = mol.GetNumAtoms()
+        
+        # Handle single atom case
+        if n_atoms == 1:
+            return [[0]], []
+        
+        # Get the Murcko scaffold
+        try:
+            scaffold = MurckoScaffold.GetScaffoldForMol(mol)
+        except:
+            # If scaffold extraction fails, return whole molecule
+            return [list(range(n_atoms))], []
+        
+        if scaffold is None or scaffold.GetNumAtoms() == 0:
+            # No scaffold found, return whole molecule
+            return [list(range(n_atoms))], []
+        
+        # Find which atoms belong to the scaffold
+        scaffold_match = mol.GetSubstructMatch(scaffold)
+        
+        if not scaffold_match or len(scaffold_match) == n_atoms:
+            # Either no match or scaffold is the whole molecule
+            return [list(range(n_atoms))], []
+        
+        scaffold_atoms = set(scaffold_match)
+        
+        # Identify side chain atoms (atoms not in scaffold)
+        side_chain_atoms = set(range(n_atoms)) - scaffold_atoms
+        
+        if not side_chain_atoms:
+            # No side chains, just scaffold
+            return [list(scaffold_atoms)], []
+        
+        # Group side chain atoms into connected components
+        side_chains = []
+        visited = set()
+        
+        for atom_idx in side_chain_atoms:
+            if atom_idx in visited:
+                continue
+                
+            # BFS to find connected side chain atoms
+            current_chain = []
+            queue = [atom_idx]
+            visited.add(atom_idx)
+            
+            while queue:
+                current = queue.pop(0)
+                current_chain.append(current)
+                
+                atom = mol.GetAtomWithIdx(current)
+                for neighbor in atom.GetNeighbors():
+                    neighbor_idx = neighbor.GetIdx()
+                    if neighbor_idx in side_chain_atoms and neighbor_idx not in visited:
+                        visited.add(neighbor_idx)
+                        queue.append(neighbor_idx)
+            
+            if current_chain:
+                side_chains.append(current_chain)
+        
+        # Create cliques: scaffold + each side chain
+        cliques = [list(scaffold_atoms)]
+        cliques.extend(side_chains)
+        
+        # Find broken bonds (bonds between scaffold and side chains)
+        breaks = []
+        for bond in mol.GetBonds():
+            a1 = bond.GetBeginAtomIdx()
+            a2 = bond.GetEndAtomIdx()
+            
+            # If one atom is in scaffold and other is in side chain, it's a break
+            if (a1 in scaffold_atoms and a2 in side_chain_atoms) or \
+            (a2 in scaffold_atoms and a1 in side_chain_atoms):
+                breaks.append([a1, a2])
+        
+        return cliques, breaks
 
     def brics_decomp_extra(self, mol):
         # Atomic numbers of F, Cl, Br, I, At, Ts
@@ -536,13 +939,14 @@ class SyntheticGraphFeaturizer(GraphFeaturizer):
         """
         self.mean = kwargs.get("mean", 0)
         self.std = kwargs.get("std", 1)
+        kwargs["cutting_method"] = kwargs.get("cutting_method", "BRICS")
         graphs = []
         labels = []
         assignments = []
         assignments_nodes =[]
         number_clusters = []
         explain_labels=[]
-        data_explain = Chem.SDMolSupplier("data/explanations.sdf")
+        data_explain = Chem.SDMolSupplier("/home/z1185722/chem-data/explanations.sdf")
         if data_explain is None:
             raise ValueError("Invalid data_explain_path")
         exp=self.explaination(kwargs)
@@ -586,7 +990,16 @@ class SyntheticGraphFeaturizer(GraphFeaturizer):
                 nodes.append(res)
             nodes = np.array(nodes)
             num_atoms = mol.GetNumAtoms()
-            cliques, breaks = self.brics_decomp_extra(mol)
+            if kwargs["cutting_method"]=="BRICS":
+                cliques, breaks = self.brics_decomp_extra(mol)
+            elif kwargs["cutting_method"]=="Murcko":
+                cliques, breaks = self.murcko_scaffold_decomp(mol)
+            elif kwargs["cutting_method"]=="Functional":
+                cliques, breaks = self.functional_group_decomp(mol)
+            elif kwargs["cutting_method"]=="Ring":
+                cliques, breaks = self.ring_based_decomp(mol)
+            else:
+                raise ValueError("Invalid cutting method")
             s = self.create_s(cliques, num_atoms)
             s_node = self.create_s_atom_wise(cliques, num_atoms)
             assignments.append(s)
@@ -730,3 +1143,134 @@ class SyntheticGraphFeaturizer(GraphFeaturizer):
             else:
                 e.append(0)
         return e
+    
+
+class MutagGraphFeaturizer(GraphFeaturizer):
+    """
+    Featurizer for synthetic graph-based molecular representations.
+    """
+    def __call__(self, df: pd.DataFrame, kwargs: dict) -> list:
+        """
+            Converts a DataFrame from synthetic data into a list of PyTorch Geometric Data objects.
+            Args:
+                df (pd.DataFrame): DataFrame containing the data.
+                kwargs (dict): Additional keyword arguments.
+            Returns:
+                list: List of PyTorch Geometric Data objects.
+        """
+        self.mean = kwargs.get("mean", 0)
+        self.std = kwargs.get("std", 1)
+        graphs = []
+        labels = []
+        assignments = []
+        assignments_nodes =[]
+        number_clusters = []
+        explain_labels=[]
+        
+        for (i, row) in df.iterrows():
+            y = float(row[self.y_column])
+            y = (y - self.mean) / self.std
+
+            smiles = row[self.smiles_col]
+            # id_ = row['Unnamed: 0']
+            mol_exp = row["gt_nodes"]
+
+            mol = Chem.MolFromSmiles(smiles)
+            # print(smiles)
+            if mol is None:
+                print(f"Invalid SMILES: {smiles}")
+                break
+
+            edges = []
+            for bond in mol.GetBonds():
+                start = bond.GetBeginAtomIdx()
+                end = bond.GetEndAtomIdx()
+                edges.append((start, end))
+                edges.append((end, start))
+
+            if len(edges) == 0:
+                edges = np.empty((0, 2)).T
+
+            else:
+                edges = np.array(edges).T
+
+            nodes = []
+            for atom in mol.GetAtoms():
+                res = self.get_features(atom)
+                # res.extend(self.get_atom_degree(atom))
+                # res.extend(self.get_formal_charge(atom))
+                # res.extend(self.get_is_aromatic(atom))
+                # res.extend(self.get_hybridization(atom))
+                # res.extend(self.get_valence(atom))
+                # res.extend(self.get_is_inring(atom))
+                # res.extend(self.get_num_hs(atom))
+
+                nodes.append(res)
+            nodes = np.array(nodes)
+            num_atoms = mol.GetNumAtoms()
+            cliques, breaks = self.brics_decomp_extra(mol)
+            s = self.create_s(cliques, num_atoms)
+            s_node = self.create_s_atom_wise(cliques, num_atoms)
+            assignments.append(s)
+            assignments_nodes.append(s_node)
+            # Store nodes, edges.T, and s together
+            mask = self.mask_broken_edges(torch.LongTensor(edges), breaks)
+            mask_atoms = self.mask_broken_edges_atoms(torch.LongTensor(edges), num_atoms)
+            graphs.append((nodes, edges, mask,mask_atoms))
+            labels.append(y)
+            number_clusters.append(s.shape[1])
+
+            explaination_list = self.check_mutag(mol,mol_exp)
+            explaination_list=np.array(explaination_list)
+            explaination_list = np.expand_dims(explaination_list, axis=1)
+            explain_labels.append(explaination_list)
+
+            # print(explaination_list.shape)
+            # print(explaination_list)
+        max_num_clusters = max([s.shape[1] for s in assignments])
+        max_num_nodes = max([s_node.shape[1] for s_node in assignments_nodes])
+
+        # Pad assignments
+        for i in range(len(assignments)):
+            num_clusters = assignments[i].shape[1]
+            num_atoms = assignments[i].shape[0]
+            padding = torch.zeros((num_atoms, max_num_clusters-num_clusters))
+            assing_new = torch.cat((assignments[i], padding), dim=1)
+            assignments[i] = np.array(assing_new)
+
+        for i in range(len(assignments_nodes)):
+            num_clusters = assignments_nodes[i].shape[1]
+            num_atoms = assignments_nodes[i].shape[0]
+            padding = torch.zeros((num_atoms, max_num_nodes-num_clusters))
+            assing_new = torch.cat((assignments_nodes[i], padding), dim=1)
+            assignments_nodes[i] = np.array(assing_new)
+
+        labels = np.array(labels)
+        return [Data(
+            x=torch.FloatTensor(x),
+            edge_index=torch.LongTensor(edge_index),
+            s=torch.FloatTensor(s),
+            s_node=torch.FloatTensor(s_node),
+            y=torch.FloatTensor([y]),
+            num_cluster=torch.LongTensor([num_cluster]),
+            mask=torch.FloatTensor(mask),
+            mask_atom=torch.FloatTensor(maskatom),
+            explanation=torch.FloatTensor(explain_label)
+        ) for ((x, edge_index, mask, maskatom), s, s_node, num_cluster, y, explain_label) in zip(graphs, assignments, assignments_nodes, number_clusters, labels, explain_labels)]
+
+
+
+    def check_mutag(self, mol, mol_exp):
+
+        e=[]
+        try:
+            mutags = [int(x) for x in mol_exp.split(",")]
+        except:
+            mutags = []
+        for atom in mol.GetAtoms():
+            if atom.GetAtomMapNum() in mutags:
+                e.append(1)
+            else:
+                e.append(0)
+        return e
+
