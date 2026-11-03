@@ -35,9 +35,9 @@ EXPLAINERS = [
 def args_parser():
     parser = argparse.ArgumentParser(description="")
     parser.add_argument("--seed", type=int, default=123, help="seed")
-    parser.add_argument("--save_path", type=str,default="/home/sebek/sebek/bxaic/new/cyp/Saliency_explain_cyp_0.pt" ,required=False, help="path to save explanations")
+    parser.add_argument("--save_path", type=str, required=True, help="path to save explanations")
     parser.add_argument("--batch_size", type=int, default=1, help="batch size")
-    parser.add_argument("--explainer_path", type=str, required=False,default="/home/sebek/sebek/bxaic/weights/weights/cyp/model_GIN_cyp_0.pt", help="model path")
+    parser.add_argument("--explainer_path", type=str, required=True, help="model path")
     parser.add_argument(
         "--explainer_type",
         type=str,

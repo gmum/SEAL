@@ -23,18 +23,18 @@ SEAL (Substructure Explanation via Attribution Learning), a new interpretable gr
 	```sh
 	pip install -e .
 	```
-4. Set the Python path to include the SEAL project root (required for imports):
+4. Set the Python path to include the SEAL project root (required for imports), running this from the repository root:
 	```sh
-	export PYTHONPATH=$HOME/gnn/SEAL:$PYTHONPATH
+	export PYTHONPATH=$(pwd):$PYTHONPATH
 	```
 
 ## Usage
 
 ### Setup
 
-Before running any scripts, ensure the Python path is set:
+Before running any scripts, ensure the Python path is set (run from the repository root):
 ```sh
-export PYTHONPATH=$HOME/gnn/SEAL:$PYTHONPATH
+export PYTHONPATH=$(pwd):$PYTHONPATH
 ```
 
 Create the output directories:
@@ -122,7 +122,10 @@ python scripts/evaluate_explanations.py \
     --explanations_path "<path_to_explanations>/${MODEL_TYPE}_${DATASET}_split${SPLIT}_reg${REGULARIZE}.pt"
 ```
 
-**For real-world molecular datasets:**
+**For real-world molecular datasets (additional fidelity evaluation):**
+
+This script masks the features of the most important atoms (by default 30% of the atoms) and reports positive and negative fidelity. The AOPC results reported in the paper are computed with `scripts/evaluate_fidelity_auc.py`, described in [Evaluate Explanations with AOPC](#evaluate-explanations-with-aopc).
+
 ```sh
 python scripts/evaluate_explanations_mol.py \
     --save_path "<path_to_results>/${MODEL_TYPE}_${DATASET}_split${SPLIT}_reg${REGULARIZE}.csv" \
@@ -138,12 +141,13 @@ python scripts/evaluate_explanations_mol.py \
 - `--explanations_path`: Path to the extracted explanations file
 - `--model_path`: Path to the trained model weights (for `evaluate_explanations_mol.py`)
 - `--percentage`: Percentage of top nodes to consider for masking (default: 0.3)
-- `--absolute`: Use absolute values of attributions (1 for yes, 0 for no)
-- `--mask_contribution`: Mask contribution instead of attribution (1 for yes, 0 for no)
+- `--absolute`: Use absolute values of attributions (1 for yes, 0 for no; default: 0)
+- `--mask_contribution`: Mask contribution instead of attribution (1 for yes, 0 for no; default: 0)
+- `--num_masked_path`: File with the number of masked atoms per molecule. A SEAL run writes it, and a SEALAtom run reads it to mask the same number of atoms (required for SEALAtom)
 
 ### Evaluate Explanations with AOPC
 
-Compute the Area Over the Perturbation Curve (AOPC) on real-world molecular datasets by deleting fragments in decreasing order of importance:
+Compute the Area Over the Perturbation Curve (AOPC) on real-world molecular datasets by deleting fragments in decreasing order of importance. This is the evaluation used for the AOPC results reported in the paper:
 
 ```sh
 python scripts/evaluate_fidelity_auc.py \

@@ -2,8 +2,6 @@ import argparse
 import copy
 import json
 import os
-from pyexpat import model
-from turtle import pos
 from tqdm import tqdm
 from torch_geometric.nn.conv import MessagePassing
 from torch_geometric.nn.conv import GINConv
@@ -21,10 +19,9 @@ from torch_geometric.loader import DataLoader
 from torch_geometric.utils import to_dense_adj, subgraph
 
 from sklearn.metrics import f1_score, mean_squared_error as mse_score
-from extract_explanations_mol import create_model
+from extract_explanations_mol import create_model, set_seed
 
 from datasetss import GraphFeaturizer, build_dataset
-from trainGNNs import get_model, set_seed
 import sys
 
 
@@ -37,11 +34,13 @@ def args_parser():
     parser = argparse.ArgumentParser(description="")
     parser.add_argument("--seed", type=int, default=123, help="seed")
     parser.add_argument("--save_path", type=str, default=None, help="path to save results")
-    parser.add_argument("--explanations_path", type=str,default="/home/sebek/sebek/bxaic/debug/explanations_IntegratedGradients_sol_4.pt" ,required=False)
-    parser.add_argument("--model_path", type=str, required=False,default="/home/sebek/sebek/bxaic/debug/model_GIN_sol_4.pt", help="model path")
+    parser.add_argument("--explanations_path", type=str, required=True, help="path to explanations")
+    parser.add_argument("--model_path", type=str, required=True, help="model path")
     parser.add_argument("--percentage", type=float, default=0.3, help="percentage of nodes to mask")
-    parser.add_argument("--absolute", type=int, help="use absolute values of attributions")
-    parser.add_argument("--mask_contribution", type=int, help="mask contribution instead of attribution")
+    parser.add_argument("--absolute", type=int, default=0, help="use absolute values of attributions")
+    parser.add_argument("--mask_contribution", type=int, default=0, help="mask contribution instead of attribution")
+    parser.add_argument("--num_masked_path", type=str, default=None,
+                        help="file with the number of masked atoms per molecule: written by a SEAL run, read by a SEALAtom run")
     args = parser.parse_args()
     return args
 
@@ -219,7 +218,9 @@ def main():
             original_data = copy.deepcopy(data)
             original_output = model(data, mask_idx=None)["output"]
 
-            number_masked = torch.load(f"/shared/results/common/z1185722/gnn/ids/{loaded_args['data_set']}_{args.percentage}_{loaded_args['split']}_{int(args.absolute)}_{int(args.mask_contribution)}.pt")
+            if args.num_masked_path is None:
+                raise ValueError("SEALAtom needs --num_masked_path: the file written by a SEAL run with the same settings.")
+            number_masked = torch.load(args.num_masked_path)
 
             number_to_mask = number_masked[ids].item()
 
@@ -298,8 +299,10 @@ def main():
         pos_fidelitys.append(pos_fidelity)
         neg_fidelitys.append(neg_fidelity)
         metrics_.append(metric_)
-        # if loaded["args"]["explainer_type"]=="SEAL":
-        #     torch.save(torch.tensor(numbers_to_mask), f"/shared/results/common/z1185722/gnn/ids/{loaded_args['data_set']}_{args.percentage}_{loaded_args['split']}_{int(args.absolute)}_{int(args.mask_contribution)}.pt")
+
+    # SEALAtom masks the same number of atoms per molecule as SEAL
+    if loaded["args"]["explainer_type"] == "SEAL" and args.num_masked_path is not None:
+        torch.save(torch.tensor(numbers_to_mask), args.num_masked_path)
 
     metrics = {
         "dataset": loaded_args["data_set"],
