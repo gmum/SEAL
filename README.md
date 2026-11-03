@@ -141,6 +141,28 @@ python scripts/evaluate_explanations_mol.py \
 - `--absolute`: Use absolute values of attributions (1 for yes, 0 for no)
 - `--mask_contribution`: Mask contribution instead of attribution (1 for yes, 0 for no)
 
+### Evaluate Explanations with AOPC
+
+Compute the Area Over the Perturbation Curve (AOPC) on real-world molecular datasets by deleting fragments in decreasing order of importance:
+
+```sh
+python scripts/evaluate_fidelity_auc.py \
+    --save_path "<path_to_results>/aopc_${DATASET}.csv" \
+    --explanations_path "<path_to_explanations>/${MODEL_TYPE}_${DATASET}_split${SPLIT}_reg${REGULARIZE}.pt" \
+    --model_path "<path_to_weights>/${MODEL_TYPE}_${DATASET}_split${SPLIT}_reg${REGULARIZE}.pt"
+```
+
+
+**Parameters:**
+- `--save_path`: Path to append evaluation results (CSV)
+- `--explanations_path`: Path to the extracted explanations file
+- `--model_path`: Path to the trained model weights that produced the explanations
+- `--mode`: How fragments are removed: `delete` removes their atoms and bonds from the graph (default), `mask` sets their atom features to zero and keeps the bonds, `mask_contribution` additionally excludes their contributions from the sum
+- `--aggregation`: How atom attributions of other explainers are aggregated into fragment scores: `mean` (default), `sum` or `max`
+- `--absolute`: 1 ranks fragments by the magnitude of their contributions; 0 ranks them by signed contribution in the direction of the prediction (default: 0)
+- `--seed`: Random seed (default: 123)
+
+
 ### Visualize Explanations
 
 ```sh
@@ -157,6 +179,10 @@ Example:
 - data/explanations.sdf
 
 The Mutagenicity (MUTAG) dataset is available from the TUDataset repository see: https://chrsmrrs.github.io/datasets/docs/datasets/, adopted from https://github.com/ngocbh/MAGE/blob/main/dataset/mutag0.py
+By default, these files are read from the data/ directory in the repository root. To keep them elsewhere, set `SEAL_DATA_DIR`:
+```sh
+export SEAL_DATA_DIR=/path/to/data
+```
 
 
 ## License

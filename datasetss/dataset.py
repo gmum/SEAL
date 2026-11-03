@@ -10,6 +10,14 @@ from rdkit.Chem.Scaffolds import MurckoScaffold
 from tdc.utils import retrieve_label_name_list
 import pandas as pd
 from tdc.utils import retrieve_label_name_list
+import os
+
+# Directory with local data files (B-XAIC data.csv and explanations.sdf, MUTAG mutagenicity_dataset2.csv).
+# Defaults to data/ in the repository root; set the SEAL_DATA_DIR environment variable to override.
+DATA_DIR = os.environ.get(
+    "SEAL_DATA_DIR",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data"),
+)
 
 DEFAULT_ATOM_TYPE_SET = ["C", "N", "O", "F", "Cl", "Br", "P", "S", "B", "I", "Unk"]
 DEFAULT_HYBRIDIZATION_SET = ["SP", "SP2", "SP3", "Other"]
@@ -104,7 +112,7 @@ def build_dataset(kwargs:dict) -> tuple:
         data = ADME(name = 'BBB_Martins')
         split = data.get_split(method = 'scaffold',seed=kwargs['split'])
     elif kwargs["data_set"] == "mutag":
-        data=pd.read_csv('/home/z1185722/chem-data/mutagenicity_dataset2.csv')
+        data=pd.read_csv(os.path.join(DATA_DIR, 'mutagenicity_dataset2.csv'))
         data=data.rename(columns={"smiles": "Drug", kwargs['data_set']: "Y"})
         
         train = data[data[f"split_{kwargs['split']}"] == 'train']
@@ -124,7 +132,7 @@ def build_dataset(kwargs:dict) -> tuple:
         "indole",
         "PAINS",
     ]:
-        data=pd.read_csv('/home/z1185722/chem-data/data.csv')
+        data=pd.read_csv(os.path.join(DATA_DIR, 'data.csv'))
         data=data.rename(columns={"smiles": "Drug", kwargs['data_set']: "Y"})
         
         train = data[data[f"split_{kwargs['split']}"] == 'train']
@@ -955,7 +963,7 @@ class SyntheticGraphFeaturizer(GraphFeaturizer):
         assignments_nodes =[]
         number_clusters = []
         explain_labels=[]
-        data_explain = Chem.SDMolSupplier("/home/z1185722/chem-data/explanations.sdf")
+        data_explain = Chem.SDMolSupplier(os.path.join(DATA_DIR, "explanations.sdf"))
         if data_explain is None:
             raise ValueError("Invalid data_explain_path")
         exp=self.explaination(kwargs)

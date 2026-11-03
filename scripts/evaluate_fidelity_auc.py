@@ -35,7 +35,6 @@ import argparse
 import copy
 import csv
 import os
-import sys
 from typing import List, Tuple
 
 import numpy as np
@@ -50,20 +49,10 @@ from torch_geometric.nn import global_add_pool, global_max_pool
 from torch.nn import Linear
 from torch.nn import functional as F
 
-# Path setup
-sys.path.append("/home/musial/gnn/libs/ProtGNN")
-sys.path.append("/home/musial/gnn")
-sys.path.append("/home/musial/gnn/SEAL/architectures")
-sys.path.append("/home/musial/gnn/SEAL/datasetss")
-sys.path.append("/home/musial/gnn/SEAL")
-
 from datasetss import GraphFeaturizer, build_dataset
-# from trainGNNs import get_model, set_seed
 from architectures import SEALNetwork, SEALAtom
 from extract_explanations_mol import create_model
 
-from libs.ProtGNN.Configures import model_args
-from libs.ProtGNN.models import GnnNets
 import random
 import torch
 import numpy as np
@@ -500,7 +489,9 @@ def auc_of_curve(deltas: List[float]) -> float:
     xs = np.array([c[0] for c in clean], dtype=float)
     ys = np.array([c[1] for c in clean], dtype=float)
     xs_norm = xs / (len(deltas) - 1)          # normalize to [0, 1]
-    return float(np.trapz(ys, xs_norm))
+    # np.trapezoid exists from NumPy 2.0; np.trapz is missing in recent NumPy
+    trapezoid = np.trapezoid if hasattr(np, "trapezoid") else np.trapz
+    return float(trapezoid(ys, xs_norm))
 
 
 # Model loading
@@ -551,35 +542,37 @@ def load_model(loaded_model, test_set, device):
                 module.in_channels, module.out_channels = ch[0], ch[-1]
         # No wrapper needed: forward() handles both calling conventions directly
     except Exception:
-        model_args.model_name = loaded_model["args"]["model_type"]
-        model_args.readout = loaded_model["args"]["readout"]
-        model_args.num_prototypes_per_class = 3
-        model_args.latent_dim = (
-            [loaded_model["args"]["hidden"]] * loaded_model["args"]["num_layers"]
-        )
-        model_args.latent_dim[-1] = 128
-        print(model_args)
-        protgnn = GnnNets(11, 2, model_args)
-        for layer in protgnn.model.gnn_layers:
-            if isinstance(layer, GINConv):
-                layer.in_channels = layer.nn[0].in_features
-                layer.out_channels = layer.nn[0].out_features
-        protgnn.load_state_dict(loaded_model["state_dict"])
-        model = protgnn.model   # use inner model directly; forward() handles output indexing
-        is_proto = True
+        # ProtGNN support is commented out. To evaluate a ProtGNN checkpoint, add the
+        # ProtGNN repository (https://github.com/zaixizhang/ProtGNN) to PYTHONPATH,
+        # uncomment the block below and remove this raise.
+        raise
+        # from Configures import model_args
+        # from models import GnnNets
+        # model_args.model_name = loaded_model["args"]["model_type"]
+        # model_args.readout = loaded_model["args"]["readout"]
+        # model_args.num_prototypes_per_class = 3
+        # model_args.latent_dim = (
+        #     [loaded_model["args"]["hidden"]] * loaded_model["args"]["num_layers"]
+        # )
+        # model_args.latent_dim[-1] = 128
+        # print(model_args)
+        # protgnn = GnnNets(11, 2, model_args)
+        # for layer in protgnn.model.gnn_layers:
+        #     if isinstance(layer, GINConv):
+        #         layer.in_channels = layer.nn[0].in_features
+        #         layer.out_channels = layer.nn[0].out_features
+        # protgnn.load_state_dict(loaded_model["state_dict"])
+        # model = protgnn.model   # use inner model directly; forward() handles output indexing
+        # is_proto = True
     model = model.to(device)
     model.eval()
     return model, is_proto
 
 
-def load_seal_model(loaded, test_set, loaded_args, device):
-    """Load a SEAL / SEALAtom model."""
+def load_seal_model(loaded, loaded_model, test_set, device):
+    """Load a SEAL / SEALAtom model from the checkpoint given by --model_path."""
     explainer_type = loaded["args"]["explainer_type"]
-    model_weights = torch.load(
-        loaded["args"]["model_path"],
-        map_location=device,
-        weights_only=False,
-    )["state_dict"]
+    loaded_args = loaded_model["args"]
     model_kwargs = {
         "model":             explainer_type,
         "hidden_features":   loaded_args["hidden_dim"],
@@ -595,7 +588,7 @@ def load_seal_model(loaded, test_set, loaded_args, device):
     }
     print(model_kwargs)
     model = create_model(model_kwargs)
-    model.load_state_dict(model_weights)
+    model.load_state_dict(loaded_model["state_dict"])
     model = model.to(device)
     model.eval()
     return model
@@ -628,7 +621,7 @@ def main():
     # Load model
     is_proto = False
     if explainer_type in ("SEAL", "SEALAtom", "SEALAuto"):
-        model = load_seal_model(loaded, test_set, loaded_args, device)
+        model = load_seal_model(loaded, loaded_model, test_set, device)
     else:
         model, is_proto = load_model(loaded_model, test_set, device)
 
